@@ -481,6 +481,105 @@ class OrdersFlow:
         per_page_input.press("Enter", timeout=10000)
         _wait_for_network_idle(self.page)
 
+    def select_all_on_page(self) -> None:
+        checkbox = self.page.locator("input.check-all-on-page.processible").first
+        checkbox.wait_for(state="visible", timeout=10000)
+        if not checkbox.is_checked():
+            checkbox.click(timeout=10000)
+
+    def open_bulk_action(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='bulk-action'] "
+                    "button.custom-dropdown__trigger[data-dropdown='bulk-action']"
+                ),
+                self.page.locator("button[data-dropdown='bulk-action']"),
+                self.page.get_by_role(
+                    "button", name=re.compile(r"Select Bulk Action", re.I)
+                ),
+                self.page.get_by_text(re.compile(r"^Select Bulk Action$", re.I)),
+            ],
+            "Select Bulk Action button",
+            timeout_ms=10000,
+        )
+
+    def select_allocate_stock(self) -> None:
+        bulk_action = self.page.locator("select[name='bulk_action']").first
+        bulk_action.wait_for(state="visible", timeout=10000)
+        bulk_action.select_option(value="try_allocation")
+
+    def submit_bulk_action(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='bulk-action'] "
+                    "button[onclick='startBulkAction()']"
+                ),
+                self.page.locator("button[onclick='startBulkAction()']"),
+                self.page.get_by_role(
+                    "button", name=re.compile(r"^Submit Action$", re.I)
+                ),
+                self.page.get_by_text(re.compile(r"^Submit Action$", re.I)),
+            ],
+            "Submit Action button",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def open_filters_panel(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "button.dc-main-filters-trigger[onclick='toggleMainFilters(this)']"
+                ),
+                self.page.locator("button.dc-main-filters-trigger"),
+                self.page.get_by_role("button", name=re.compile(r"Filters", re.I)),
+                self.page.get_by_text(re.compile(r"^Filters$", re.I)),
+            ],
+            "Filters button",
+            timeout_ms=10000,
+        )
+        self.page.locator("#mainFiltersContent").first.wait_for(
+            state="visible",
+            timeout=10000,
+        )
+
+    def open_allocation_status_filter(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "#mainFiltersContent "
+                    "div.custom-dropdown[data-filter='allocation_status'] "
+                    "div.custom-dropdown__trigger.filter-trigger"
+                ),
+                self.page.locator(
+                    "div[data-dropdown='allocation_status'] "
+                    "div[data-key='allocation_status']"
+                ),
+                self.page.locator(
+                    "div.custom-dropdown[data-filter='allocation_status'] "
+                    "div.filter-trigger"
+                ),
+                self.page.get_by_text(re.compile(r"^Allocation Status$", re.I)),
+            ],
+            "Allocation Status filter",
+            timeout_ms=10000,
+        )
+        self.page.locator(
+            "div.custom-dropdown[data-filter='allocation_status'] "
+            "div.custom-dropdown__content"
+        ).first.wait_for(state="visible", timeout=10000)
+
+    def select_fully_allocated(self) -> None:
+        checkbox = self.page.locator(
+            "div.custom-select__items[data-filter='allocation_status'] "
+            "input[name='filters[allocation_status][]'][value='2']"
+        ).first
+        checkbox.wait_for(state="visible", timeout=10000)
+        if not checkbox.is_checked():
+            checkbox.click(timeout=10000)
+
 
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
@@ -563,6 +662,27 @@ def run(config: Config) -> None:
 
             orders.set_records_per_page_to_total()
             _log_step("Step 14: Set records per page to full record count")
+
+            orders.select_all_on_page()
+            _log_step("Step 15: Click select-all checkbox")
+
+            orders.open_bulk_action()
+            _log_step("Step 16: Click Select Bulk Action")
+
+            orders.select_allocate_stock()
+            _log_step("Step 17: Select Allocate Stock")
+
+            orders.submit_bulk_action()
+            _log_step("Step 18: Click Submit Action")
+
+            orders.open_filters_panel()
+            _log_step("Step 19: Click Filters")
+
+            orders.open_allocation_status_filter()
+            _log_step("Step 20: Click Allocation Status")
+
+            orders.select_fully_allocated()
+            _log_step("Step 21: Click Fully Allocated")
         finally:
             try:
                 context.close()
