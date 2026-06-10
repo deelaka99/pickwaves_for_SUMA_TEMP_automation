@@ -436,6 +436,7 @@ class OrdersFlow:
     def __init__(self, page: Page):
         self.page = page
         self.created_pick_reference: Optional[str] = None
+        self.created_single_pick_reference: Optional[str] = None
 
     def open_orders(self) -> None:
         _click_first_visible(
@@ -845,12 +846,24 @@ class OrdersFlow:
         ).first
         result_modal.wait_for(state="visible", timeout=10000)
         result_text = result_modal.text_content() or ""
-        pick_match = re.search(r"\bPIC-[A-Z0-9-]+\b(?=\s*\(MULTI\))", result_text, re.I)
-        if not pick_match:
-            pick_match = re.search(r"\bPIC-[A-Z0-9-]+\b", result_text, re.I)
-        if not pick_match:
+        labelled_picks = re.findall(
+            r"\b(PIC-[A-Z0-9-]+)\b\s*\((SINGLE|MULTI)\)",
+            result_text,
+            re.I,
+        )
+        for pick_reference, pick_type in labelled_picks:
+            if pick_type.upper() == "MULTI":
+                self.created_pick_reference = pick_reference.upper()
+            elif pick_type.upper() == "SINGLE":
+                self.created_single_pick_reference = pick_reference.upper()
+
+        pick_matches = re.findall(r"\bPIC-[A-Z0-9-]+\b", result_text, re.I)
+        if not self.created_pick_reference and pick_matches:
+            self.created_pick_reference = pick_matches[-1].upper()
+        if not self.created_single_pick_reference and len(pick_matches) > 1:
+            self.created_single_pick_reference = pick_matches[0].upper()
+        if not self.created_pick_reference:
             raise RuntimeError("Could not capture created pick reference.")
-        self.created_pick_reference = pick_match.group(0).upper()
 
         _click_first_visible(
             [
@@ -866,21 +879,78 @@ class OrdersFlow:
         )
         _wait_after_action(self.page)
 
-    def click_add_tag_for_created_pick(self) -> None:
-        if not self.created_pick_reference:
+    def _pick_row_for_reference(self, pick_reference: Optional[str]) -> Locator:
+        if not pick_reference:
             raise RuntimeError("Created pick reference is not available.")
 
         pick_row = self.page.locator("tr.has-second-row").filter(
             has=self.page.locator(
-                "a", has_text=re.compile(re.escape(self.created_pick_reference), re.I)
+                "a", has_text=re.compile(re.escape(pick_reference), re.I)
             )
         )
         pick_row.first.wait_for(state="visible", timeout=10000)
-        add_tag_button = pick_row.first.locator(
+        return pick_row.first
+
+    def _click_add_tag_for_reference(self, pick_reference: Optional[str]) -> None:
+        pick_row = self._pick_row_for_reference(pick_reference)
+        add_tag_button = pick_row.locator(
             "xpath=following-sibling::tr[1]//button[contains(@class, 'tags-opener')]"
         )
         add_tag_button.first.wait_for(state="visible", timeout=10000)
         add_tag_button.first.click(timeout=10000)
+
+    def _click_tag_input_for_reference(self, pick_reference: Optional[str]) -> None:
+        pick_row = self._pick_row_for_reference(pick_reference)
+        tag_input = pick_row.locator(
+            "xpath=following-sibling::tr[1]//input[contains(@class, 'simple-tags__input')]"
+        )
+        tag_input.first.wait_for(state="visible", timeout=10000)
+        tag_input.first.click(timeout=10000)
+
+    def _type_tag_for_reference(
+        self,
+        pick_reference: Optional[str],
+        tag: str,
+    ) -> None:
+        pick_row = self._pick_row_for_reference(pick_reference)
+        tag_input = pick_row.locator(
+            "xpath=following-sibling::tr[1]//input[contains(@class, 'simple-tags__input')]"
+        )
+        tag_input.first.wait_for(state="visible", timeout=10000)
+        tag_input.first.fill(tag, timeout=10000)
+
+    def _submit_tag_for_reference(self, pick_reference: Optional[str]) -> None:
+        pick_row = self._pick_row_for_reference(pick_reference)
+        tag_submit = pick_row.locator(
+            "xpath=following-sibling::tr[1]//button[contains(@class, 'addon-right-btn')]"
+        )
+        tag_submit.first.wait_for(state="visible", timeout=10000)
+        tag_submit.first.click(timeout=10000)
+        _wait_after_action(self.page)
+
+    def click_add_tag_for_created_pick(self) -> None:
+        self._click_add_tag_for_reference(self.created_pick_reference)
+
+    def click_created_pick_tag_input(self) -> None:
+        self._click_tag_input_for_reference(self.created_pick_reference)
+
+    def type_created_pick_tag(self, tag: str) -> None:
+        self._type_tag_for_reference(self.created_pick_reference, tag)
+
+    def submit_created_pick_tag(self) -> None:
+        self._submit_tag_for_reference(self.created_pick_reference)
+
+    def click_add_tag_for_created_single_pick(self) -> None:
+        self._click_add_tag_for_reference(self.created_single_pick_reference)
+
+    def click_created_single_pick_tag_input(self) -> None:
+        self._click_tag_input_for_reference(self.created_single_pick_reference)
+
+    def type_created_single_pick_tag(self, tag: str) -> None:
+        self._type_tag_for_reference(self.created_single_pick_reference, tag)
+
+    def submit_created_single_pick_tag(self) -> None:
+        self._submit_tag_for_reference(self.created_single_pick_reference)
 
     def _wait_for_pick_option_modal(self, timeout_ms: int = 15000) -> None:
         end_time = time.monotonic() + (timeout_ms / 1000)
@@ -1095,6 +1165,27 @@ def run(config: Config) -> None:
 
             orders.click_add_tag_for_created_pick()
             _log_step("Step 39: Click Add Tag for created pick")
+
+            orders.click_created_pick_tag_input()
+            _log_step('Step 40: Click "Type new tag" field')
+
+            orders.type_created_pick_tag("SUMATEMP")
+            _log_step('Step 41: Type "SUMATEMP"')
+
+            orders.submit_created_pick_tag()
+            _log_step('Step 42: Click "+"')
+
+            orders.click_add_tag_for_created_single_pick()
+            _log_step("Step 43: Click Add Tag for created single pick")
+
+            orders.click_created_single_pick_tag_input()
+            _log_step('Step 44: Click "Type new tag" field')
+
+            orders.type_created_single_pick_tag("SUMATEMP")
+            _log_step('Step 45: Type "SUMATEMP"')
+
+            orders.submit_created_single_pick_tag()
+            _log_step('Step 46: Click "+"')
 
         finally:
             try:
