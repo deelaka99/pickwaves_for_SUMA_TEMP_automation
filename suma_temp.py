@@ -315,6 +315,21 @@ class SettingsFlow:
             "Included In Single Picks",
         )
 
+    def save(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator("button#save-settings-button"),
+                self.page.locator("#save-settings-button"),
+                self.page.get_by_role("button", name=re.compile("save settings", re.I)),
+                self.page.get_by_role("button", name=re.compile("save setting", re.I)),
+                self.page.get_by_text(re.compile(r"^Save Settings$", re.I)),
+                self.page.get_by_text(re.compile(r"^Save Setting$", re.I)),
+            ],
+            "Save Settings button",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
 
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
@@ -366,6 +381,9 @@ def run(config: Config) -> None:
             _log_step(
                 'Step 5: Set Single Item Multi Action to "Included In Single Picks"'
             )
+
+            settings.save()
+            _log_step("Step 6: Click Save Settings")
         finally:
             try:
                 context.close()
