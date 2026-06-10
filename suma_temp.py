@@ -1,11 +1,13 @@
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
 from dotenv import load_dotenv
 from playwright.sync_api import Locator, Page
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -40,6 +42,97 @@ def _wait_for_network_idle(page: Page, timeout_ms: int = 10000) -> None:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except PlaywrightTimeoutError:
         pass
+
+
+def _wait_for_helm_processing_to_finish(
+    page: Page,
+    timeout_ms: int = 180000,
+) -> None:
+    processing_pattern = (
+        r"Selected orders are processing|Current Process|Creating Allocations|"
+        r"Processing selected orders|Please wait"
+    )
+    end_time = time.monotonic() + (timeout_ms / 1000)
+    saw_processing = False
+
+    while time.monotonic() < end_time:
+        try:
+            is_processing = page.evaluate(
+                """pattern => {
+                    const regex = new RegExp(pattern, 'i');
+                    const overlaySelector = [
+                        '.modal',
+                        '.modal-content',
+                        '.modal-dialog',
+                        '.swal2-container',
+                        '.sweet-alert',
+                        '.bootbox',
+                        '.blockUI',
+                        '.progress',
+                        '.progress-bar',
+                        '[role="dialog"]',
+                        '[aria-modal="true"]'
+                    ].join(',');
+                    return Array.from(document.querySelectorAll(overlaySelector)).some(el => {
+                        const style = window.getComputedStyle(el);
+                        if (
+                            style.display === 'none'
+                            || style.visibility === 'hidden'
+                            || Number(style.opacity || '1') === 0
+                        ) {
+                            return false;
+                        }
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) {
+                            return false;
+                        }
+                        if (
+                            el.id === 'chunkProcess'
+                            || el.classList.contains('modal-backdrop')
+                        ) {
+                            return true;
+                        }
+                        return regex.test(el.innerText || el.textContent || '');
+                    });
+                }""",
+                processing_pattern,
+            )
+        except PlaywrightError as error:
+            if _is_execution_context_destroyed(error):
+                page.wait_for_timeout(500)
+                continue
+            raise
+        if is_processing:
+            saw_processing = True
+            page.wait_for_timeout(1000)
+            continue
+        if saw_processing:
+            _wait_for_network_idle(page)
+            page.wait_for_timeout(1000)
+        return
+
+    raise RuntimeError("Helm processing did not finish in time.")
+
+
+def _wait_after_action(page: Page, timeout_ms: int = 180000) -> None:
+    _wait_for_network_idle(page)
+    _wait_for_helm_processing_to_finish(page, timeout_ms=timeout_ms)
+
+
+def _is_execution_context_destroyed(error: Exception) -> bool:
+    return "Execution context was destroyed" in str(error)
+
+
+def _first_present(locators: Sequence[Locator], description: str) -> Locator:
+    last_error: Optional[Exception] = None
+    for locator in locators:
+        try:
+            if locator.count() > 0:
+                return locator.first
+        except PlaywrightTimeoutError as error:
+            last_error = error
+            continue
+    raise RuntimeError(f"Could not find {description}.") from last_error
 
 
 def _click_first_visible(
@@ -666,6 +759,64 @@ class OrdersFlow:
         )
         _wait_for_network_idle(self.page)
 
+    def select_single_pick_bulk(self) -> None:
+        self._wait_for_pick_option_modal()
+        single_pick_select = _first_present(
+            [
+                self.page.locator(
+                    "#pickOptionModal select#selected_single_pick_option"
+                ),
+                self.page.locator("select[name='selected_single_pick_option']"),
+            ],
+            "Single Pick Option select",
+        )
+        single_pick_select.select_option(value="4")
+
+    def select_multi_pick_bulk(self) -> None:
+        self._wait_for_pick_option_modal()
+        multi_pick_select = _first_present(
+            [
+                self.page.locator("#pickOptionModal select#selected_multi_pick_option"),
+                self.page.locator("select[name='selected_multi_pick_option']"),
+            ],
+            "Multi Pick Option select",
+        )
+        multi_pick_select.select_option(value="4")
+
+    def submit_create_picks(self) -> None:
+        self._click_visible_element(
+            "#pickOptionModal a#createZonePicksBtn, "
+            "#pickOptionModal a[onclick*='createPicksWithOptions']",
+            "Create Picks button",
+            text_pattern=r"^Create Picks$",
+        )
+        _wait_after_action(self.page)
+
+    def confirm_pick_creation_result(self) -> None:
+        result_modal = self.page.locator(
+            "div.modal-content:has(h2.modal-title:text-is('Zone Pick Creation Result'))"
+        ).first
+        result_modal.wait_for(state="visible", timeout=10000)
+        result_text = result_modal.text_content() or ""
+        pick_match = re.search(r"\bPIC-[A-Z0-9-]+\b", result_text, re.I)
+        if not pick_match:
+            raise RuntimeError("Could not capture created pick reference.")
+        self.created_pick_reference = pick_match.group(0).upper()
+
+        _click_first_visible(
+            [
+                result_modal.locator("button:has-text('OK')"),
+                self.page.locator(
+                    "div.modal-content:has-text('Picks are created!') "
+                    "button:has-text('OK')"
+                ),
+                self.page.get_by_role("button", name=re.compile(r"^OK$", re.I)),
+            ],
+            "Zone Pick Creation Result OK button",
+            timeout_ms=10000,
+        )
+        _wait_after_action(self.page)
+
 
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
@@ -787,6 +938,19 @@ def run(config: Config) -> None:
 
             orders.click_create_picks()
             _log_step("Step 27: Click Picks")
+
+            orders.select_single_pick_bulk()
+            _log_step('Step 28: Select "Bulk" for Single Pick Option')
+
+            orders.select_multi_pick_bulk()
+            _log_step('Step 29: Select "Bulk" for Multi Pick Option')
+
+            orders.submit_create_picks()
+            _log_step('Step 30: Click "Create Picks"')
+
+            orders.confirm_pick_creation_result()
+            _log_step('Step 31: Click "OK"')
+
         finally:
             try:
                 context.close()
