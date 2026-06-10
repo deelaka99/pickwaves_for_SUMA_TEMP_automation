@@ -77,6 +77,28 @@ def _fill_first_visible(
     raise RuntimeError(f"Could not find {description}.") from last_error
 
 
+def _select_option_label_case_insensitive(
+    select_locator: Locator,
+    desired_label: str,
+) -> None:
+    desired = re.sub(r"\s+", " ", desired_label).strip().lower()
+    options = select_locator.locator("option")
+    option_count = options.count()
+    for index in range(option_count):
+        option = options.nth(index)
+        label = option.text_content() or ""
+        normalized_label = re.sub(r"\s+", " ", label).strip().lower()
+        if normalized_label == desired:
+            value = option.get_attribute("value")
+            if value is not None:
+                select_locator.select_option(value=value)
+                return
+            select_locator.select_option(label=label)
+            return
+
+    select_locator.select_option(label=desired_label)
+
+
 @dataclass(frozen=True)
 class Config:
     helm_url: str
@@ -254,6 +276,45 @@ class SettingsFlow:
         )
         _wait_for_network_idle(self.page)
 
+    def open_picking_section(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "button.accordion-header[aria-controls='collapse-picking']"
+                ),
+                self.page.locator("button[aria-controls='collapse-picking']"),
+                self.page.locator(
+                    "button.accordion-header:has(h2.header-title:text-is('Picking'))"
+                ),
+                self.page.get_by_role("button", name=re.compile(r"^Picking$", re.I)),
+                self.page.get_by_text(re.compile(r"^Picking$", re.I)),
+                self.page.locator("text=/^Picking$/i"),
+            ],
+            "Picking section",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def set_single_item_multi_action_to_single_picks(self) -> None:
+        select = self.page.locator("select#single_item_multi_action").first
+        try:
+            select.wait_for(state="visible", timeout=10000)
+            _select_option_label_case_insensitive(select, "Included In Single Picks")
+            return
+        except PlaywrightTimeoutError:
+            pass
+
+        label = self.page.locator(
+            "label[for='single_item_multi_action']",
+            has_text=re.compile(r"^Single Item Multi Action:?\s*$", re.I),
+        ).first
+        label.wait_for(state="visible", timeout=10000)
+        linked_select = self.page.locator("#single_item_multi_action").first
+        _select_option_label_case_insensitive(
+            linked_select,
+            "Included In Single Picks",
+        )
+
 
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
@@ -297,6 +358,14 @@ def run(config: Config) -> None:
 
             settings.open_general_settings()
             _log_step("Step 3: Click General Settings")
+
+            settings.open_picking_section()
+            _log_step("Step 4: Click Picking")
+
+            settings.set_single_item_multi_action_to_single_picks()
+            _log_step(
+                'Step 5: Set Single Item Multi Action to "Included In Single Picks"'
+            )
         finally:
             try:
                 context.close()
