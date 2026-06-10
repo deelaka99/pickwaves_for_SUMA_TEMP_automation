@@ -35,6 +35,13 @@ def _log_step(step: str) -> None:
     print(f"[DONE] {step}")
 
 
+def _wait_for_network_idle(page: Page, timeout_ms: int = 10000) -> None:
+    try:
+        page.wait_for_load_state("networkidle", timeout=timeout_ms)
+    except PlaywrightTimeoutError:
+        pass
+
+
 def _click_first_visible(
     locators: Sequence[Locator],
     description: str,
@@ -202,6 +209,52 @@ class LoginFlow:
         )
 
 
+class SettingsFlow:
+    def __init__(self, page: Page):
+        self.page = page
+
+    def open_settings_menu(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator("div.sidebar a[href='/settings/menu']"),
+                self.page.locator("a[href='/settings/menu']"),
+                self.page.locator("a[href*='/settings/menu' i]"),
+                self.page.get_by_role("link", name=re.compile("settings", re.I)),
+                self.page.get_by_role("button", name=re.compile("settings", re.I)),
+                self.page.get_by_text(re.compile(r"^Settings$", re.I)),
+                self.page.locator("a[href*='setting' i]"),
+                self.page.locator("button[aria-label*='setting' i]"),
+            ],
+            "Settings navigation item",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def open_general_settings(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    'div.settings-page div.setting-option[onclick*="/settings/index"]'
+                ),
+                self.page.locator('div.setting-option[onclick*="/settings/index"]'),
+                self.page.locator(
+                    "div.setting-option:has(span:text-is('General Settings'))"
+                ),
+                self.page.get_by_role(
+                    "button", name=re.compile("general settings", re.I)
+                ),
+                self.page.get_by_role(
+                    "link", name=re.compile("general settings", re.I)
+                ),
+                self.page.get_by_text(re.compile(r"^General Settings$", re.I)),
+                self.page.locator("text=/General Settings/i"),
+            ],
+            "General Settings card",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)
@@ -236,7 +289,14 @@ def run(config: Config) -> None:
             login.submit()
             page.wait_for_load_state("domcontentloaded")
             login.verify()
-            _log_step("Login")
+            _log_step("Step 1: Login")
+
+            settings = SettingsFlow(page)
+            settings.open_settings_menu()
+            _log_step("Step 2: Click Settings")
+
+            settings.open_general_settings()
+            _log_step("Step 3: Click General Settings")
         finally:
             try:
                 context.close()
