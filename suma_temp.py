@@ -435,6 +435,7 @@ class SettingsFlow:
 class OrdersFlow:
     def __init__(self, page: Page):
         self.page = page
+        self.created_pick_reference: Optional[str] = None
 
     def open_orders(self) -> None:
         _click_first_visible(
@@ -844,7 +845,9 @@ class OrdersFlow:
         ).first
         result_modal.wait_for(state="visible", timeout=10000)
         result_text = result_modal.text_content() or ""
-        pick_match = re.search(r"\bPIC-[A-Z0-9-]+\b", result_text, re.I)
+        pick_match = re.search(r"\bPIC-[A-Z0-9-]+\b(?=\s*\(MULTI\))", result_text, re.I)
+        if not pick_match:
+            pick_match = re.search(r"\bPIC-[A-Z0-9-]+\b", result_text, re.I)
         if not pick_match:
             raise RuntimeError("Could not capture created pick reference.")
         self.created_pick_reference = pick_match.group(0).upper()
@@ -862,6 +865,78 @@ class OrdersFlow:
             timeout_ms=10000,
         )
         _wait_after_action(self.page)
+
+    def click_add_tag_for_created_pick(self) -> None:
+        if not self.created_pick_reference:
+            raise RuntimeError("Created pick reference is not available.")
+
+        pick_row = self.page.locator("tr.has-second-row").filter(
+            has=self.page.locator(
+                "a", has_text=re.compile(re.escape(self.created_pick_reference), re.I)
+            )
+        )
+        pick_row.first.wait_for(state="visible", timeout=10000)
+        add_tag_button = pick_row.first.locator(
+            "xpath=following-sibling::tr[1]//button[contains(@class, 'tags-opener')]"
+        )
+        add_tag_button.first.wait_for(state="visible", timeout=10000)
+        add_tag_button.first.click(timeout=10000)
+
+    def _wait_for_pick_option_modal(self, timeout_ms: int = 15000) -> None:
+        end_time = time.monotonic() + (timeout_ms / 1000)
+        while time.monotonic() < end_time:
+            try:
+                if (
+                    self.page.locator(
+                        "#pickOptionModal select#selected_single_pick_option"
+                    ).count()
+                    > 0
+                ):
+                    return
+            except PlaywrightTimeoutError:
+                pass
+            self.page.wait_for_timeout(250)
+        raise RuntimeError("Create Picks options modal did not open.")
+
+    def _click_visible_element(
+        self,
+        selector: str,
+        description: str,
+        text_pattern: Optional[str] = None,
+        timeout_ms: int = 15000,
+    ) -> None:
+        end_time = time.monotonic() + (timeout_ms / 1000)
+        while time.monotonic() < end_time:
+            try:
+                clicked = self.page.evaluate(
+                    """({selector, textPattern}) => {
+                        const regex = textPattern ? new RegExp(textPattern, 'i') : null;
+                        const element = Array.from(document.querySelectorAll(selector))
+                            .find(el => {
+                                const style = window.getComputedStyle(el);
+                                const rect = el.getBoundingClientRect();
+                                return style.display !== 'none'
+                                    && style.visibility !== 'hidden'
+                                    && rect.width > 0
+                                    && rect.height > 0
+                                    && (!regex || regex.test(el.innerText || el.textContent || ''));
+                            });
+                        if (!element) return false;
+                        element.scrollIntoView({block: 'center', inline: 'center'});
+                        element.click();
+                        return true;
+                    }""",
+                    {"selector": selector, "textPattern": text_pattern},
+                )
+            except PlaywrightError as error:
+                if _is_execution_context_destroyed(error):
+                    self.page.wait_for_timeout(500)
+                    continue
+                raise
+            if clicked:
+                return
+            self.page.wait_for_timeout(250)
+        raise RuntimeError(f"Could not click {description}.")
 
 
 def run(config: Config) -> None:
@@ -1017,6 +1092,9 @@ def run(config: Config) -> None:
 
             orders.open_picking_page()
             _log_step("Step 38: Click Picking")
+
+            orders.click_add_tag_for_created_pick()
+            _log_step("Step 39: Click Add Tag for created pick")
 
         finally:
             try:
