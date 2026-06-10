@@ -331,6 +331,87 @@ class SettingsFlow:
         _wait_for_network_idle(self.page)
 
 
+class OrdersFlow:
+    def __init__(self, page: Page):
+        self.page = page
+
+    def open_orders(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "ul.acc-menu a[href='/orders/index']:has(span:text-is('Orders'))"
+                ),
+                self.page.locator("a[href='/orders/index']"),
+                self.page.locator("a[href*='/orders/index' i]"),
+                self.page.get_by_role("link", name=re.compile(r"^Orders$", re.I)),
+                self.page.get_by_text(re.compile(r"^Orders$", re.I)),
+                self.page.locator("a[href*='orders' i]"),
+            ],
+            "Orders navigation item",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def open_filters_dropdown(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='filter-actions'] button#clear-button"
+                ),
+                self.page.locator(
+                    "button#clear-button[data-dropdown='filter-actions']"
+                ),
+                self.page.locator(
+                    "button.custom-dropdown__trigger[data-dropdown='filter-actions']"
+                ),
+                self.page.locator(
+                    "div.custom-dropdown[data-dropdown='filter-actions'] button"
+                ),
+            ],
+            "Apply Filters dropdown",
+            timeout_ms=10000,
+        )
+
+    def clear_filters(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='filter-actions'] "
+                    "button.dropdown-action__item",
+                    has_text=re.compile(r"Clear Filters", re.I),
+                ),
+                self.page.get_by_role(
+                    "button", name=re.compile(r"Clear Filters", re.I)
+                ),
+                self.page.get_by_text(re.compile(r"^Clear Filters$", re.I)),
+            ],
+            "Clear Filters button",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def open_saved_filters(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='saved-filters'] button#saved-filters"
+                ),
+                self.page.locator(
+                    "button#saved-filters[data-dropdown='saved-filters']"
+                ),
+                self.page.locator(
+                    "button.custom-dropdown__trigger[data-dropdown='saved-filters']"
+                ),
+                self.page.get_by_role(
+                    "button", name=re.compile(r"Saved Filters", re.I)
+                ),
+                self.page.get_by_text(re.compile(r"^Saved Filters$", re.I)),
+            ],
+            "Saved Filters button",
+            timeout_ms=10000,
+        )
+
+
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)
@@ -384,6 +465,19 @@ def run(config: Config) -> None:
 
             settings.save()
             _log_step("Step 6: Click Save Settings")
+
+            orders = OrdersFlow(page)
+            orders.open_orders()
+            _log_step("Step 7: Click Orders")
+
+            orders.open_filters_dropdown()
+            _log_step("Step 8: Click filter actions dropdown")
+
+            orders.clear_filters()
+            _log_step("Step 9: Click Clear Filters")
+
+            orders.open_saved_filters()
+            _log_step("Step 10: Click Saved Filters")
         finally:
             try:
                 context.close()
