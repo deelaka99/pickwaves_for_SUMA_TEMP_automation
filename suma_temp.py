@@ -411,6 +411,76 @@ class OrdersFlow:
             timeout_ms=10000,
         )
 
+    def open_saved_filter_input(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='saved-filters'] "
+                    "input.select-element__input[data-select='filter_id']"
+                ),
+                self.page.locator(
+                    "div.select-element[data-select='filter_id'] "
+                    "input[data-type='label']"
+                ),
+                self.page.get_by_placeholder(
+                    re.compile(r"Choose a saved filter", re.I)
+                ),
+                self.page.locator("input[name='filter_id']"),
+            ],
+            "Choose a saved filter input",
+            timeout_ms=10000,
+        )
+
+    def choose_despatch_ready_saved_filter(self) -> None:
+        filter_name = "Despatch Ready - Pregen Success - To Allocate"
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div.select-element__option[data-select='filter_id']"
+                    "[data-value='9'][data-label='Despatch Ready - Pregen Success - To Allocate']"
+                ),
+                self.page.locator(
+                    "div.select-element__option[data-select='filter_id']",
+                    has_text=re.compile(rf"^{re.escape(filter_name)}$", re.I),
+                ),
+                self.page.get_by_text(re.compile(rf"^{re.escape(filter_name)}$", re.I)),
+            ],
+            f"saved filter '{filter_name}'",
+            timeout_ms=10000,
+        )
+
+    def apply_saved_filter(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div[data-dropdown='saved-filters'] "
+                    "button[name='load_filter'][value='Apply']"
+                ),
+                self.page.locator("button[name='load_filter']"),
+                self.page.get_by_role("button", name=re.compile(r"^Apply$", re.I)),
+                self.page.get_by_text(re.compile(r"^Apply$", re.I)),
+            ],
+            "saved filter Apply button",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def set_records_per_page_to_total(self) -> None:
+        per_page_input = self.page.locator("input#per-page").first
+        per_page_input.wait_for(state="visible", timeout=10000)
+
+        record_text = self.page.locator("span.check-filtered.table-select-all").first
+        record_text.wait_for(state="visible", timeout=10000)
+        text = record_text.text_content() or ""
+        match = re.search(r"/\s*([\d,]+)\s+records", text, re.I)
+        if not match:
+            raise RuntimeError(f"Could not find total records count in: {text!r}")
+
+        total_records = match.group(1).replace(",", "")
+        per_page_input.fill(total_records, timeout=10000)
+        per_page_input.press("Enter", timeout=10000)
+        _wait_for_network_idle(self.page)
+
 
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
@@ -478,6 +548,21 @@ def run(config: Config) -> None:
 
             orders.open_saved_filters()
             _log_step("Step 10: Click Saved Filters")
+
+            orders.open_saved_filter_input()
+            _log_step("Step 11: Click Choose a saved filter input")
+
+            orders.choose_despatch_ready_saved_filter()
+            _log_step(
+                "Step 12: Click saved filter "
+                "'Despatch Ready - Pregen Success - To Allocate'"
+            )
+
+            orders.apply_saved_filter()
+            _log_step("Step 13: Click Apply")
+
+            orders.set_records_per_page_to_total()
+            _log_step("Step 14: Set records per page to full record count")
         finally:
             try:
                 context.close()
