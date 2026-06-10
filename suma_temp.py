@@ -580,6 +580,92 @@ class OrdersFlow:
         if not checkbox.is_checked():
             checkbox.click(timeout=10000)
 
+    def open_location_filter(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "#mainFiltersContent "
+                    "div.custom-dropdown[data-filter='location'] "
+                    "div.custom-dropdown__trigger.filter-trigger"
+                ),
+                self.page.locator(
+                    "div[data-dropdown='location'] div[data-key='location']"
+                ),
+                self.page.locator(
+                    "div.custom-dropdown[data-filter='location'] div.filter-trigger"
+                ),
+                self.page.get_by_text(re.compile(r"^Location$", re.I)),
+            ],
+            "Location filter",
+            timeout_ms=10000,
+        )
+        self.page.locator(
+            "div.custom-dropdown[data-filter='location'] "
+            "input.tree-select__input[data-tree='location']"
+        ).first.wait_for(state="visible", timeout=10000)
+
+    def select_sumatemp_location(self) -> None:
+        checkbox = self.page.locator(
+            "div.tree-select[data-tree='location'] "
+            "input[data-tree='location'][data-value='1989']"
+        ).first
+        try:
+            checkbox.wait_for(state="visible", timeout=10000)
+        except PlaywrightTimeoutError:
+            checkbox = self.page.locator(
+                "div.tree-select__node[data-text='SUMATEMP'] "
+                "input[data-tree='location']"
+            ).first
+            checkbox.wait_for(state="visible", timeout=10000)
+
+        if not checkbox.is_checked():
+            checkbox.click(timeout=10000)
+
+    def apply_filters(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator("button#apply-button"),
+                self.page.locator("button.dropdown-button__button#apply-button"),
+                self.page.get_by_role(
+                    "button", name=re.compile(r"^Apply Filters$", re.I)
+                ),
+                self.page.get_by_text(re.compile(r"^Apply Filters$", re.I)),
+            ],
+            "Apply Filters button",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def open_create_dropdown(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div.custom-dropdown[data-dropdown='create'] "
+                    "button.custom-dropdown__trigger[data-dropdown='create']"
+                ),
+                self.page.locator("button[data-dropdown='create']"),
+                self.page.get_by_role("button", name=re.compile(r"^Create$", re.I)),
+                self.page.get_by_text(re.compile(r"^Create$", re.I)),
+            ],
+            "Create button",
+            timeout_ms=10000,
+        )
+
+    def click_create_picks(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "div.custom-dropdown[data-dropdown='create'] "
+                    "a.dropdown-action__item[onclick='prepareOrderForPicking(this)']"
+                ),
+                self.page.locator("a[onclick='prepareOrderForPicking(this)']"),
+                self.page.get_by_text(re.compile(r"^Picks$", re.I)),
+            ],
+            "Picks create action",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
 
 def run(config: Config) -> None:
     with sync_playwright() as playwright:
@@ -683,6 +769,24 @@ def run(config: Config) -> None:
 
             orders.select_fully_allocated()
             _log_step("Step 21: Click Fully Allocated")
+
+            orders.open_location_filter()
+            _log_step("Step 22: Click Location")
+
+            orders.select_sumatemp_location()
+            _log_step("Step 23: Click SUMATEMP")
+
+            orders.apply_filters()
+            _log_step("Step 24: Click Apply Filters")
+
+            orders.select_all_on_page()
+            _log_step("Step 25: Click select-all checkbox")
+
+            orders.open_create_dropdown()
+            _log_step("Step 26: Click Create")
+
+            orders.click_create_picks()
+            _log_step("Step 27: Click Picks")
         finally:
             try:
                 context.close()
