@@ -408,6 +408,14 @@ class SettingsFlow:
             "Included In Single Picks",
         )
 
+    def set_single_item_multi_action_to_split_multi_picks(self) -> None:
+        select = self.page.locator("select#single_item_multi_action").first
+        select.wait_for(state="visible", timeout=10000)
+        try:
+            select.select_option(value="1")
+        except PlaywrightTimeoutError:
+            _select_option_label_case_insensitive(select, "Split to Multi Picks")
+
     def save(self) -> None:
         _click_first_visible(
             [
@@ -441,6 +449,44 @@ class OrdersFlow:
                 self.page.locator("a[href*='orders' i]"),
             ],
             "Orders navigation item",
+            timeout_ms=10000,
+        )
+        _wait_for_network_idle(self.page)
+
+    def open_despatch_menu(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "ul.acc-menu li.hasChild > a:has(span:text-is('Despatch'))"
+                ),
+                self.page.locator(
+                    "nav[role='navigation'] li.hasChild > a:has(span:text-is('Despatch'))"
+                ),
+                self.page.get_by_role("link", name=re.compile(r"^Despatch$", re.I)),
+                self.page.get_by_text(re.compile(r"^Despatch$", re.I)),
+            ],
+            "Despatch navigation item",
+            timeout_ms=10000,
+        )
+        self.page.locator("a[href='/orders/picks']").first.wait_for(
+            state="visible",
+            timeout=10000,
+        )
+
+    def open_picking_page(self) -> None:
+        _click_first_visible(
+            [
+                self.page.locator(
+                    "ul.acc-menu li.hasChild:has(> a span:text-is('Despatch')) "
+                    "a[href='/orders/picks']"
+                ),
+                self.page.locator(
+                    "a[href='/orders/picks']:has(span:text-is('Picking'))"
+                ),
+                self.page.get_by_role("link", name=re.compile(r"^Picking$", re.I)),
+                self.page.get_by_text(re.compile(r"^Picking$", re.I)),
+            ],
+            "Despatch Picking navigation item",
             timeout_ms=10000,
         )
         _wait_for_network_idle(self.page)
@@ -950,6 +996,27 @@ def run(config: Config) -> None:
 
             orders.confirm_pick_creation_result()
             _log_step('Step 31: Click "OK"')
+
+            settings.open_settings_menu()
+            _log_step("Step 32: Click Settings")
+
+            settings.open_general_settings()
+            _log_step("Step 33: Click General Settings")
+
+            settings.open_picking_section()
+            _log_step("Step 34: Click Picking")
+
+            settings.set_single_item_multi_action_to_split_multi_picks()
+            _log_step('Step 35: Set Single Item Multi Action to "Split to Multi Picks"')
+
+            settings.save()
+            _log_step("Step 36: Click Save Settings")
+
+            orders.open_despatch_menu()
+            _log_step("Step 37: Click Despatch")
+
+            orders.open_picking_page()
+            _log_step("Step 38: Click Picking")
 
         finally:
             try:
