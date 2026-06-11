@@ -54,6 +54,15 @@ export HELM_PASSWORD="your-password"
 
 ## Run
 
+Streamlit app:
+
+```
+.\.venv\Scripts\Activate.ps1
+streamlit run app.py
+```
+
+Direct script run:
+
 ```
 .\.venv\Scripts\Activate.ps1
 python suma_temp.py
@@ -63,12 +72,20 @@ macOS/Linux:
 
 ```
 source .venv/bin/activate
+streamlit run app.py
+```
+
+Direct script run:
+
+```
+source .venv/bin/activate
 python suma_temp.py
 ```
 
 ## Notes
 
 - `suma_temp.py` loads credentials from `.env` using `python-dotenv`.
+- `app.py` provides Start and Stop buttons and a fixed-height log panel for the automation output.
 - Set `DEBUG=true` to print extra login diagnostics.
 - The script prefers the `MULTI` pick reference from the creation result modal for the first tag pass, then tags the `SINGLE` pick reference when it is present.
 - `clf_temp.py` and the CLF `prime_picks.py` flow were used as reference patterns for selectors and pick-tagging behavior.
