@@ -2,13 +2,13 @@
 
 Automates the Helm SUMA TEMP workflow with Python and Playwright.
 
-`suma_temp.py` follows the SUMA TEMP pick creation workflow through Step 36:
+`suma_temp.py` follows the SUMA TEMP pick creation workflow through Step 29:
 
 - Logs in to Helm.
 - Loads the saved Orders filter `Despatch Ready - Pregen Success - To Allocate`.
 - Allocates stock, filters fully allocated SUMATEMP orders, and creates picks.
-- Captures the created pick references from the pick creation result modal.
-- Opens Despatch > Picking and adds the `SUMATEMP` tag to the created pick rows.
+- Captures every created pick reference from the pick creation result modal.
+- Opens Despatch > Picking and adds the `SUMATEMP` tag to every captured pick row.
 
 ## Setup
 
@@ -85,5 +85,5 @@ python suma_temp.py
 - `suma_temp.py` loads credentials from `.env` using `python-dotenv`.
 - `app.py` provides Start and Stop buttons and a fixed-height log panel for the automation output.
 - Set `DEBUG=true` to print extra login diagnostics.
-- The script prefers the `MULTI` pick reference from the creation result modal for the first tag pass, then tags the `SINGLE` pick reference when it is present.
+- The script tags every `PIC-...` reference captured from the creation result modal, whether there is one pick ID or multiple pick IDs.
 - `clf_temp.py` and the CLF `prime_picks.py` flow were used as reference patterns for selectors and pick-tagging behavior.

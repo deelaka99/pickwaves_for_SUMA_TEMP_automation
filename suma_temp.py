@@ -37,6 +37,10 @@ def _log_step(step: str) -> None:
     print(f"[DONE] {step}")
 
 
+def _log_stop(message: str) -> None:
+    print(f"[STOP] {message}")
+
+
 def _wait_for_network_idle(page: Page, timeout_ms: int = 10000) -> None:
     try:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
@@ -305,8 +309,7 @@ class LoginFlow:
 class OrdersFlow:
     def __init__(self, page: Page):
         self.page = page
-        self.created_pick_reference: Optional[str] = None
-        self.created_single_pick_reference: Optional[str] = None
+        self.created_pick_references: list[str] = []
 
     def open_orders(self) -> None:
         _click_first_visible(
@@ -535,11 +538,52 @@ class OrdersFlow:
 
         return None
 
-    def select_all_on_page(self) -> None:
+    def select_all_on_page(self, timeout_ms: int = 15000) -> bool:
         checkbox = self.page.locator("input.check-all-on-page.processible").first
-        checkbox.wait_for(state="visible", timeout=10000)
+        end_time = time.monotonic() + (timeout_ms / 1000)
+
+        while time.monotonic() < end_time:
+            try:
+                if checkbox.count() > 0 and checkbox.is_visible():
+                    break
+                if self._orders_result_is_empty():
+                    return False
+            except PlaywrightTimeoutError:
+                pass
+            self.page.wait_for_timeout(500)
+        else:
+            if self._orders_result_is_empty():
+                return False
+            checkbox.wait_for(state="visible", timeout=1000)
+
         if not checkbox.is_checked():
             checkbox.click(timeout=10000)
+        return True
+
+    def _orders_result_is_empty(self) -> bool:
+        empty_text_pattern = re.compile(
+            r"no\s+(orders|records|results)|nothing\s+found|0\s*/\s*0|"
+            r"0\s+records|no matching",
+            re.I,
+        )
+        candidates = [
+            self.page.locator(".dataTables_empty"),
+            self.page.locator(".empty-state"),
+            self.page.locator("td", has_text=empty_text_pattern),
+            self.page.locator("div", has_text=empty_text_pattern),
+        ]
+        for locator in candidates:
+            try:
+                if locator.count() > 0 and locator.first.is_visible():
+                    return True
+            except PlaywrightTimeoutError:
+                continue
+
+        try:
+            body_text = self.page.locator("body").inner_text(timeout=1000)
+        except PlaywrightTimeoutError:
+            return False
+        return bool(empty_text_pattern.search(body_text))
 
     def open_bulk_action(self) -> None:
         _click_first_visible(
@@ -759,24 +803,16 @@ class OrdersFlow:
         ).first
         result_modal.wait_for(state="visible", timeout=10000)
         result_text = result_modal.text_content() or ""
-        labelled_picks = re.findall(
-            r"\b(PIC-[A-Z0-9-]+)\b\s*\((SINGLE|MULTI)\)",
-            result_text,
-            re.I,
-        )
-        for pick_reference, pick_type in labelled_picks:
-            if pick_type.upper() == "MULTI":
-                self.created_pick_reference = pick_reference.upper()
-            elif pick_type.upper() == "SINGLE":
-                self.created_single_pick_reference = pick_reference.upper()
-
         pick_matches = re.findall(r"\bPIC-[A-Z0-9-]+\b", result_text, re.I)
-        if not self.created_pick_reference and pick_matches:
-            self.created_pick_reference = pick_matches[-1].upper()
-        if not self.created_single_pick_reference and len(pick_matches) > 1:
-            self.created_single_pick_reference = pick_matches[0].upper()
-        if not self.created_pick_reference:
+        self.created_pick_references = list(
+            dict.fromkeys(pick_reference.upper() for pick_reference in pick_matches)
+        )
+        if not self.created_pick_references:
             raise RuntimeError("Could not capture created pick reference.")
+        print(
+            "[INFO] Created pick references: "
+            + ", ".join(self.created_pick_references)
+        )
 
         _click_first_visible(
             [
@@ -841,29 +877,16 @@ class OrdersFlow:
         tag_submit.first.click(timeout=10000)
         _wait_after_action(self.page)
 
-    def click_add_tag_for_created_pick(self) -> None:
-        self._click_add_tag_for_reference(self.created_pick_reference)
+    def tag_created_picks(self, tag: str) -> None:
+        if not self.created_pick_references:
+            raise RuntimeError("Created pick references are not available.")
 
-    def click_created_pick_tag_input(self) -> None:
-        self._click_tag_input_for_reference(self.created_pick_reference)
-
-    def type_created_pick_tag(self, tag: str) -> None:
-        self._type_tag_for_reference(self.created_pick_reference, tag)
-
-    def submit_created_pick_tag(self) -> None:
-        self._submit_tag_for_reference(self.created_pick_reference)
-
-    def click_add_tag_for_created_single_pick(self) -> None:
-        self._click_add_tag_for_reference(self.created_single_pick_reference)
-
-    def click_created_single_pick_tag_input(self) -> None:
-        self._click_tag_input_for_reference(self.created_single_pick_reference)
-
-    def type_created_single_pick_tag(self, tag: str) -> None:
-        self._type_tag_for_reference(self.created_single_pick_reference, tag)
-
-    def submit_created_single_pick_tag(self) -> None:
-        self._submit_tag_for_reference(self.created_single_pick_reference)
+        for pick_reference in self.created_pick_references:
+            print(f"[INFO] Adding tag '{tag}' to {pick_reference}")
+            self._click_add_tag_for_reference(pick_reference)
+            self._click_tag_input_for_reference(pick_reference)
+            self._type_tag_for_reference(pick_reference, tag)
+            self._submit_tag_for_reference(pick_reference)
 
     def _wait_for_pick_option_modal(self, timeout_ms: int = 15000) -> None:
         end_time = time.monotonic() + (timeout_ms / 1000)
@@ -986,7 +1009,11 @@ def run(config: Config) -> None:
             orders.set_records_per_page_to_total()
             _log_step("Step 9: Set records per page to full record count")
 
-            orders.select_all_on_page()
+            if not orders.select_all_on_page():
+                _log_stop(
+                    "No orders found after loading the saved filter; cannot continue."
+                )
+                return
             _log_step("Step 10: Click select-all checkbox")
 
             orders.open_bulk_action()
@@ -1016,7 +1043,9 @@ def run(config: Config) -> None:
             orders.apply_filters()
             _log_step("Step 19: Click Apply Filters")
 
-            orders.select_all_on_page()
+            if not orders.select_all_on_page():
+                _log_stop("There aren't any orders after the filter apply.")
+                return
             _log_step("Step 20: Click select-all checkbox")
 
             orders.open_create_dropdown()
@@ -1043,29 +1072,8 @@ def run(config: Config) -> None:
             orders.open_picking_page()
             _log_step("Step 28: Click Picking")
 
-            orders.click_add_tag_for_created_pick()
-            _log_step("Step 29: Click Add Tag for created pick")
-
-            orders.click_created_pick_tag_input()
-            _log_step('Step 30: Click "Type new tag" field')
-
-            orders.type_created_pick_tag("SUMATEMP")
-            _log_step('Step 31: Type "SUMATEMP"')
-
-            orders.submit_created_pick_tag()
-            _log_step('Step 32: Click "+"')
-
-            orders.click_add_tag_for_created_single_pick()
-            _log_step("Step 33: Click Add Tag for created single pick")
-
-            orders.click_created_single_pick_tag_input()
-            _log_step('Step 34: Click "Type new tag" field')
-
-            orders.type_created_single_pick_tag("SUMATEMP")
-            _log_step('Step 35: Type "SUMATEMP"')
-
-            orders.submit_created_single_pick_tag()
-            _log_step('Step 36: Click "+"')
+            orders.tag_created_picks("SUMATEMP")
+            _log_step('Step 29: Add "SUMATEMP" tag to every created pick')
 
         finally:
             try:
