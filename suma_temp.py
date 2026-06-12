@@ -170,28 +170,6 @@ def _fill_first_visible(
     raise RuntimeError(f"Could not find {description}.") from last_error
 
 
-def _select_option_label_case_insensitive(
-    select_locator: Locator,
-    desired_label: str,
-) -> None:
-    desired = re.sub(r"\s+", " ", desired_label).strip().lower()
-    options = select_locator.locator("option")
-    option_count = options.count()
-    for index in range(option_count):
-        option = options.nth(index)
-        label = option.text_content() or ""
-        normalized_label = re.sub(r"\s+", " ", label).strip().lower()
-        if normalized_label == desired:
-            value = option.get_attribute("value")
-            if value is not None:
-                select_locator.select_option(value=value)
-                return
-            select_locator.select_option(label=label)
-            return
-
-    select_locator.select_option(label=desired_label)
-
-
 @dataclass(frozen=True)
 class Config:
     helm_url: str
@@ -322,114 +300,6 @@ class LoginFlow:
         raise SystemExit(
             "Login did not complete within the expected time. If credentials are correct, the site may require extra steps (e.g., CAPTCHA/2FA) or the page UI changed."
         )
-
-
-class SettingsFlow:
-    def __init__(self, page: Page):
-        self.page = page
-
-    def open_settings_menu(self) -> None:
-        _click_first_visible(
-            [
-                self.page.locator("div.sidebar a[href='/settings/menu']"),
-                self.page.locator("a[href='/settings/menu']"),
-                self.page.locator("a[href*='/settings/menu' i]"),
-                self.page.get_by_role("link", name=re.compile("settings", re.I)),
-                self.page.get_by_role("button", name=re.compile("settings", re.I)),
-                self.page.get_by_text(re.compile(r"^Settings$", re.I)),
-                self.page.locator("a[href*='setting' i]"),
-                self.page.locator("button[aria-label*='setting' i]"),
-            ],
-            "Settings navigation item",
-            timeout_ms=10000,
-        )
-        _wait_for_network_idle(self.page)
-
-    def open_general_settings(self) -> None:
-        _click_first_visible(
-            [
-                self.page.locator(
-                    'div.settings-page div.setting-option[onclick*="/settings/index"]'
-                ),
-                self.page.locator('div.setting-option[onclick*="/settings/index"]'),
-                self.page.locator(
-                    "div.setting-option:has(span:text-is('General Settings'))"
-                ),
-                self.page.get_by_role(
-                    "button", name=re.compile("general settings", re.I)
-                ),
-                self.page.get_by_role(
-                    "link", name=re.compile("general settings", re.I)
-                ),
-                self.page.get_by_text(re.compile(r"^General Settings$", re.I)),
-                self.page.locator("text=/General Settings/i"),
-            ],
-            "General Settings card",
-            timeout_ms=10000,
-        )
-        _wait_for_network_idle(self.page)
-
-    def open_picking_section(self) -> None:
-        _click_first_visible(
-            [
-                self.page.locator(
-                    "button.accordion-header[aria-controls='collapse-picking']"
-                ),
-                self.page.locator("button[aria-controls='collapse-picking']"),
-                self.page.locator(
-                    "button.accordion-header:has(h2.header-title:text-is('Picking'))"
-                ),
-                self.page.get_by_role("button", name=re.compile(r"^Picking$", re.I)),
-                self.page.get_by_text(re.compile(r"^Picking$", re.I)),
-                self.page.locator("text=/^Picking$/i"),
-            ],
-            "Picking section",
-            timeout_ms=10000,
-        )
-        _wait_for_network_idle(self.page)
-
-    def set_single_item_multi_action_to_single_picks(self) -> None:
-        select = self.page.locator("select#single_item_multi_action").first
-        try:
-            select.wait_for(state="visible", timeout=10000)
-            _select_option_label_case_insensitive(select, "Included In Single Picks")
-            return
-        except PlaywrightTimeoutError:
-            pass
-
-        label = self.page.locator(
-            "label[for='single_item_multi_action']",
-            has_text=re.compile(r"^Single Item Multi Action:?\s*$", re.I),
-        ).first
-        label.wait_for(state="visible", timeout=10000)
-        linked_select = self.page.locator("#single_item_multi_action").first
-        _select_option_label_case_insensitive(
-            linked_select,
-            "Included In Single Picks",
-        )
-
-    def set_single_item_multi_action_to_split_multi_picks(self) -> None:
-        select = self.page.locator("select#single_item_multi_action").first
-        select.wait_for(state="visible", timeout=10000)
-        try:
-            select.select_option(value="1")
-        except PlaywrightTimeoutError:
-            _select_option_label_case_insensitive(select, "Split to Multi Picks")
-
-    def save(self) -> None:
-        _click_first_visible(
-            [
-                self.page.locator("button#save-settings-button"),
-                self.page.locator("#save-settings-button"),
-                self.page.get_by_role("button", name=re.compile("save settings", re.I)),
-                self.page.get_by_role("button", name=re.compile("save setting", re.I)),
-                self.page.get_by_text(re.compile(r"^Save Settings$", re.I)),
-                self.page.get_by_text(re.compile(r"^Save Setting$", re.I)),
-            ],
-            "Save Settings button",
-            timeout_ms=10000,
-        )
-        _wait_for_network_idle(self.page)
 
 
 class OrdersFlow:
@@ -607,12 +477,21 @@ class OrdersFlow:
         _wait_for_network_idle(self.page)
 
     def set_records_per_page_to_total(self) -> None:
-        per_page_input = self.page.locator("input#per-page").first
-        per_page_input.wait_for(state="visible", timeout=10000)
+        per_page_input = self._wait_for_per_page_input(timeout_ms=60000)
+        if per_page_input is None:
+            print(
+                "[INFO] Records-per-page input was not visible; "
+                "continuing with the current page size."
+            )
+            return
 
+        text = ""
         record_text = self.page.locator("span.check-filtered.table-select-all").first
-        record_text.wait_for(state="visible", timeout=10000)
-        text = record_text.text_content() or ""
+        try:
+            record_text.wait_for(state="visible", timeout=10000)
+            text = record_text.text_content() or ""
+        except PlaywrightTimeoutError:
+            text = self.page.locator("body").inner_text(timeout=10000)
         match = re.search(r"/\s*([\d,]+)\s+records", text, re.I)
         if not match:
             raise RuntimeError(f"Could not find total records count in: {text!r}")
@@ -621,6 +500,40 @@ class OrdersFlow:
         per_page_input.fill(total_records, timeout=10000)
         per_page_input.press("Enter", timeout=10000)
         _wait_for_network_idle(self.page)
+
+    def _wait_for_per_page_input(self, timeout_ms: int = 60000) -> Optional[Locator]:
+        locators = [
+            self.page.locator("input#per-page"),
+            self.page.locator("input.per-page-input"),
+            self.page.locator("input[onchange*='perPageChange']"),
+            self.page.locator("span.check-filtered input[type='text']"),
+        ]
+        select_all_checkbox = self.page.locator(
+            "input.check-all-on-page.processible"
+        ).first
+        end_time = time.monotonic() + (timeout_ms / 1000)
+
+        while time.monotonic() < end_time:
+            for locator in locators:
+                try:
+                    if locator.count() > 0 and locator.first.is_visible():
+                        return locator.first
+                except PlaywrightTimeoutError:
+                    continue
+
+            try:
+                if (
+                    select_all_checkbox.count() > 0
+                    and select_all_checkbox.is_visible()
+                    and self.page.locator("span.check-filtered").count() == 0
+                ):
+                    return None
+            except PlaywrightTimeoutError:
+                pass
+
+            self.page.wait_for_timeout(500)
+
+        return None
 
     def select_all_on_page(self) -> None:
         checkbox = self.page.locator("input.check-all-on-page.processible").first
@@ -1045,147 +958,114 @@ def run(config: Config) -> None:
             login.verify()
             _log_step("Step 1: Login")
 
-            settings = SettingsFlow(page)
-            settings.open_settings_menu()
-            _log_step("Step 2: Click Settings")
-
-            settings.open_general_settings()
-            _log_step("Step 3: Click General Settings")
-
-            settings.open_picking_section()
-            _log_step("Step 4: Click Picking")
-
-            settings.set_single_item_multi_action_to_single_picks()
-            _log_step(
-                'Step 5: Set Single Item Multi Action to "Included In Single Picks"'
-            )
-
-            settings.save()
-            _log_step("Step 6: Click Save Settings")
-
             orders = OrdersFlow(page)
             orders.open_orders()
-            _log_step("Step 7: Click Orders")
+            _log_step("Step 2: Click Orders")
 
             orders.open_filters_dropdown()
-            _log_step("Step 8: Click filter actions dropdown")
+            _log_step("Step 3: Click filter actions dropdown")
 
             orders.clear_filters()
-            _log_step("Step 9: Click Clear Filters")
+            _log_step("Step 4: Click Clear Filters")
 
             orders.open_saved_filters()
-            _log_step("Step 10: Click Saved Filters")
+            _log_step("Step 5: Click Saved Filters")
 
             orders.open_saved_filter_input()
-            _log_step("Step 11: Click Choose a saved filter input")
+            _log_step("Step 6: Click Choose a saved filter input")
 
             orders.choose_despatch_ready_saved_filter()
             _log_step(
-                "Step 12: Click saved filter "
+                "Step 7: Click saved filter "
                 "'Despatch Ready - Pregen Success - To Allocate'"
             )
 
             orders.apply_saved_filter()
-            _log_step("Step 13: Click Apply")
+            _log_step("Step 8: Click Apply")
 
             orders.set_records_per_page_to_total()
-            _log_step("Step 14: Set records per page to full record count")
+            _log_step("Step 9: Set records per page to full record count")
 
             orders.select_all_on_page()
-            _log_step("Step 15: Click select-all checkbox")
+            _log_step("Step 10: Click select-all checkbox")
 
             orders.open_bulk_action()
-            _log_step("Step 16: Click Select Bulk Action")
+            _log_step("Step 11: Click Select Bulk Action")
 
             orders.select_allocate_stock()
-            _log_step("Step 17: Select Allocate Stock")
+            _log_step("Step 12: Select Allocate Stock")
 
             orders.submit_bulk_action()
-            _log_step("Step 18: Click Submit Action")
+            _log_step("Step 13: Click Submit Action")
 
             orders.open_filters_panel()
-            _log_step("Step 19: Click Filters")
+            _log_step("Step 14: Click Filters")
 
             orders.open_allocation_status_filter()
-            _log_step("Step 20: Click Allocation Status")
+            _log_step("Step 15: Click Allocation Status")
 
             orders.select_fully_allocated()
-            _log_step("Step 21: Click Fully Allocated")
+            _log_step("Step 16: Click Fully Allocated")
 
             orders.open_location_filter()
-            _log_step("Step 22: Click Location")
+            _log_step("Step 17: Click Location")
 
             orders.select_sumatemp_location()
-            _log_step("Step 23: Click SUMATEMP")
+            _log_step("Step 18: Click SUMATEMP")
 
             orders.apply_filters()
-            _log_step("Step 24: Click Apply Filters")
+            _log_step("Step 19: Click Apply Filters")
 
             orders.select_all_on_page()
-            _log_step("Step 25: Click select-all checkbox")
+            _log_step("Step 20: Click select-all checkbox")
 
             orders.open_create_dropdown()
-            _log_step("Step 26: Click Create")
+            _log_step("Step 21: Click Create")
 
             orders.click_create_picks()
-            _log_step("Step 27: Click Picks")
+            _log_step("Step 22: Click Picks")
 
             orders.select_single_pick_bulk()
-            _log_step('Step 28: Select "Bulk" for Single Pick Option')
+            _log_step('Step 23: Select "Bulk" for Single Pick Option')
 
             orders.select_multi_pick_bulk()
-            _log_step('Step 29: Select "Bulk" for Multi Pick Option')
+            _log_step('Step 24: Select "Bulk" for Multi Pick Option')
 
             orders.submit_create_picks()
-            _log_step('Step 30: Click "Create Picks"')
+            _log_step('Step 25: Click "Create Picks"')
 
             orders.confirm_pick_creation_result()
-            _log_step('Step 31: Click "OK"')
-
-            settings.open_settings_menu()
-            _log_step("Step 32: Click Settings")
-
-            settings.open_general_settings()
-            _log_step("Step 33: Click General Settings")
-
-            settings.open_picking_section()
-            _log_step("Step 34: Click Picking")
-
-            settings.set_single_item_multi_action_to_split_multi_picks()
-            _log_step('Step 35: Set Single Item Multi Action to "Split to Multi Picks"')
-
-            settings.save()
-            _log_step("Step 36: Click Save Settings")
+            _log_step('Step 26: Click "OK"')
 
             orders.open_despatch_menu()
-            _log_step("Step 37: Click Despatch")
+            _log_step("Step 27: Click Despatch")
 
             orders.open_picking_page()
-            _log_step("Step 38: Click Picking")
+            _log_step("Step 28: Click Picking")
 
             orders.click_add_tag_for_created_pick()
-            _log_step("Step 39: Click Add Tag for created pick")
+            _log_step("Step 29: Click Add Tag for created pick")
 
             orders.click_created_pick_tag_input()
-            _log_step('Step 40: Click "Type new tag" field')
+            _log_step('Step 30: Click "Type new tag" field')
 
             orders.type_created_pick_tag("SUMATEMP")
-            _log_step('Step 41: Type "SUMATEMP"')
+            _log_step('Step 31: Type "SUMATEMP"')
 
             orders.submit_created_pick_tag()
-            _log_step('Step 42: Click "+"')
+            _log_step('Step 32: Click "+"')
 
             orders.click_add_tag_for_created_single_pick()
-            _log_step("Step 43: Click Add Tag for created single pick")
+            _log_step("Step 33: Click Add Tag for created single pick")
 
             orders.click_created_single_pick_tag_input()
-            _log_step('Step 44: Click "Type new tag" field')
+            _log_step('Step 34: Click "Type new tag" field')
 
             orders.type_created_single_pick_tag("SUMATEMP")
-            _log_step('Step 45: Type "SUMATEMP"')
+            _log_step('Step 35: Type "SUMATEMP"')
 
             orders.submit_created_single_pick_tag()
-            _log_step('Step 46: Click "+"')
+            _log_step('Step 36: Click "+"')
 
         finally:
             try:

@@ -2,14 +2,12 @@
 
 Automates the Helm SUMA TEMP workflow with Python and Playwright.
 
-`suma_temp.py` follows the SUMA TEMP pick creation workflow through Step 46:
+`suma_temp.py` follows the SUMA TEMP pick creation workflow through Step 36:
 
 - Logs in to Helm.
-- Updates Picking settings to include single-item orders in single picks.
 - Loads the saved Orders filter `Despatch Ready - Pregen Success - To Allocate`.
 - Allocates stock, filters fully allocated SUMATEMP orders, and creates picks.
 - Captures the created pick references from the pick creation result modal.
-- Switches Picking settings back to `Split to Multi Picks`.
 - Opens Despatch > Picking and adds the `SUMATEMP` tag to the created pick rows.
 
 ## Setup
