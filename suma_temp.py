@@ -810,8 +810,7 @@ class OrdersFlow:
         if not self.created_pick_references:
             raise RuntimeError("Could not capture created pick reference.")
         print(
-            "[INFO] Created pick references: "
-            + ", ".join(self.created_pick_references)
+            "[INFO] Created pick references: " + ", ".join(self.created_pick_references)
         )
 
         _click_first_visible(
@@ -877,16 +876,30 @@ class OrdersFlow:
         tag_submit.first.click(timeout=10000)
         _wait_after_action(self.page)
 
-    def tag_created_picks(self, tag: str) -> None:
+    def tag_created_picks(self, tag: str, start_step: int = 29) -> int:
         if not self.created_pick_references:
             raise RuntimeError("Created pick references are not available.")
 
+        step = start_step
         for pick_reference in self.created_pick_references:
             print(f"[INFO] Adding tag '{tag}' to {pick_reference}")
             self._click_add_tag_for_reference(pick_reference)
+            _log_step(f"Step {step}: Click Add Tag for {pick_reference}")
+            step += 1
+
             self._click_tag_input_for_reference(pick_reference)
+            _log_step(f'Step {step}: Click "Type new tag" field for {pick_reference}')
+            step += 1
+
             self._type_tag_for_reference(pick_reference, tag)
+            _log_step(f'Step {step}: Type "{tag}" for {pick_reference}')
+            step += 1
+
             self._submit_tag_for_reference(pick_reference)
+            _log_step(f'Step {step}: Click "+" for {pick_reference}')
+            step += 1
+
+        return step
 
     def _wait_for_pick_option_modal(self, timeout_ms: int = 15000) -> None:
         end_time = time.monotonic() + (timeout_ms / 1000)
@@ -1072,8 +1085,7 @@ def run(config: Config) -> None:
             orders.open_picking_page()
             _log_step("Step 28: Click Picking")
 
-            orders.tag_created_picks("SUMATEMP")
-            _log_step('Step 29: Add "SUMATEMP" tag to every created pick')
+            orders.tag_created_picks("SUMATEMP", start_step=29)
 
         finally:
             try:

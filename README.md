@@ -2,7 +2,7 @@
 
 Automates the Helm SUMA TEMP workflow with Python and Playwright.
 
-`suma_temp.py` follows the SUMA TEMP pick creation workflow through Step 29:
+`suma_temp.py` follows the SUMA TEMP pick creation workflow. Tagging steps start at Step 29 and continue for each created pick reference:
 
 - Logs in to Helm.
 - Loads the saved Orders filter `Despatch Ready - Pregen Success - To Allocate`.
